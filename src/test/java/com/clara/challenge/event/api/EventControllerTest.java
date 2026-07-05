@@ -54,7 +54,7 @@ class EventControllerTest {
         .thenReturn(new EventIngestionResult(startedState(), false));
 
     mockMvc
-        .perform(post("/events").contentType(MediaType.APPLICATION_JSON).content(validRequest()))
+        .perform(post("/v1/events").contentType(MediaType.APPLICATION_JSON).content(validRequest()))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.traceId").value("trace-1"))
         .andExpect(jsonPath("$.status").value("STARTED"))
@@ -69,7 +69,7 @@ class EventControllerTest {
         .thenReturn(new EventIngestionResult(startedState(), true));
 
     mockMvc
-        .perform(post("/events").contentType(MediaType.APPLICATION_JSON).content(validRequest()))
+        .perform(post("/v1/events").contentType(MediaType.APPLICATION_JSON).content(validRequest()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.traceId").value("trace-1"));
   }
@@ -79,7 +79,7 @@ class EventControllerTest {
     when(traceStatusService.getStatus("trace-1")).thenReturn(waitingState());
 
     mockMvc
-        .perform(get("/traces/trace-1/status"))
+        .perform(get("/v1/traces/trace-1/status"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.traceId").value("trace-1"))
         .andExpect(jsonPath("$.status").value("WAITING_OTHER_EVENT"))
@@ -91,7 +91,7 @@ class EventControllerTest {
   void shouldReturnBadRequest_WhenRequestValidationFails() throws Exception {
     mockMvc
         .perform(
-            post("/events")
+            post("/v1/events")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"traceId\":\"trace-1\"}"))
         .andExpect(status().isBadRequest())
@@ -106,7 +106,7 @@ class EventControllerTest {
         .thenThrow(new EventConflictException("Unexpected event. Expected payment-confirmed"));
 
     mockMvc
-        .perform(post("/events").contentType(MediaType.APPLICATION_JSON).content(validRequest()))
+        .perform(post("/v1/events").contentType(MediaType.APPLICATION_JSON).content(validRequest()))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("EVENT_CONFLICT"))
         .andExpect(jsonPath("$.traceId").value("trace-1"))
@@ -119,7 +119,7 @@ class EventControllerTest {
         .thenThrow(new TraceNotFoundException("missing-trace"));
 
     mockMvc
-        .perform(get("/traces/missing-trace/status"))
+        .perform(get("/v1/traces/missing-trace/status"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("TRACE_NOT_FOUND"))
         .andExpect(jsonPath("$.traceId").value("missing-trace"))
@@ -130,7 +130,7 @@ class EventControllerTest {
   void shouldReturnTraceId_WhenRequestValidationFailsAfterParsing() throws Exception {
     mockMvc
         .perform(
-            post("/events")
+            post("/v1/events")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validRequest().replace("\"eventName\": \"payment-created\",", "")))
         .andExpect(status().isBadRequest())
@@ -143,7 +143,7 @@ class EventControllerTest {
   void shouldReturnBadRequest_WhenJsonCannotBeRead() throws Exception {
     mockMvc
         .perform(
-            post("/events")
+            post("/v1/events")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validRequest().replace("SUCCESS", "UNKNOWN")))
         .andExpect(status().isBadRequest())

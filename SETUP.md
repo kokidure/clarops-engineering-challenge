@@ -84,7 +84,7 @@ The database initialisation script (`docker/init-scripts/db/01-init-schema.sql`)
 Once the application is running, call the health endpoint to confirm everything is working:
 
 ```bash
-curl http://localhost:8081/api/health
+curl http://localhost:8081/api/v1/health
 ```
 
 Expected response:
