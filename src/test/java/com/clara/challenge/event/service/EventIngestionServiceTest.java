@@ -19,7 +19,9 @@ import com.clara.challenge.event.persistence.TraceStateEntity;
 import com.clara.challenge.event.persistence.TraceStateRepository;
 import com.clara.challenge.event.persistence.TraceStatusAuditEntity;
 import com.clara.challenge.event.persistence.TraceStatusAuditRepository;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,7 +29,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -39,18 +40,27 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 class EventIngestionServiceTest {
 
   private static final Instant OCCURRED_AT = Instant.parse("2026-01-01T10:00:00Z");
+  private static final Instant NOW = Instant.parse("2026-01-01T10:02:01Z");
 
   @Mock private EventRepository eventRepository;
   @Mock private TraceStateRepository traceStateRepository;
   @Mock private TraceStatusAuditRepository traceStatusAuditRepository;
   @Mock private PlatformTransactionManager transactionManager;
 
-  @InjectMocks private EventIngestionService service;
+  private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+  private EventIngestionService service;
 
   @BeforeEach
-  void setUpTransactionManager() {
+  void setUp() {
     when(transactionManager.getTransaction(ArgumentMatchers.any(TransactionDefinition.class)))
         .thenReturn(new SimpleTransactionStatus());
+    service =
+        new EventIngestionService(
+            eventRepository,
+            traceStateRepository,
+            traceStatusAuditRepository,
+            transactionManager,
+            clock);
   }
 
   @Test
@@ -85,7 +95,7 @@ class EventIngestionServiceTest {
   @Test
   void shouldUpdateStateAndWriteAudit_WhenExpectedEventIsAccepted() {
     IncomingEvent event = event("event-2", "payment-confirmed");
-    TraceStateEntity currentState = TraceStateEntity.from(waitingState());
+    TraceStateEntity currentState = TraceStateEntity.from(waitingState(OCCURRED_AT.plusSeconds(60)));
     when(eventRepository.findByEventId(event.eventId())).thenReturn(Optional.empty());
     when(traceStateRepository.lockByTraceId(event.traceId())).thenReturn(Optional.of(currentState));
 
@@ -116,7 +126,7 @@ class EventIngestionServiceTest {
     TraceState currentState = startedState();
     when(eventRepository.findByEventId(event.eventId()))
         .thenReturn(Optional.of(EventEntity.from(event, OCCURRED_AT.plusSeconds(1))));
-    when(traceStateRepository.findById(event.traceId()))
+    when(traceStateRepository.lockByTraceId(event.traceId()))
         .thenReturn(Optional.of(TraceStateEntity.from(currentState)));
 
     EventIngestionResult result = service.ingest(event);
@@ -135,11 +145,10 @@ class EventIngestionServiceTest {
     EventEntity existingEvent = EventEntity.from(event, OCCURRED_AT.plusSeconds(1));
     when(eventRepository.findByEventId(event.eventId()))
         .thenReturn(Optional.empty(), Optional.of(existingEvent));
-    when(traceStateRepository.lockByTraceId(event.traceId())).thenReturn(Optional.empty());
+    when(traceStateRepository.lockByTraceId(event.traceId()))
+        .thenReturn(Optional.empty(), Optional.of(TraceStateEntity.from(currentState)));
     when(eventRepository.saveAndFlush(any(EventEntity.class)))
         .thenThrow(new DataIntegrityViolationException("duplicate event_id"));
-    when(traceStateRepository.findById(event.traceId()))
-        .thenReturn(Optional.of(TraceStateEntity.from(currentState)));
 
     EventIngestionResult result = service.ingest(event);
 
@@ -162,6 +171,25 @@ class EventIngestionServiceTest {
 
     verify(traceStateRepository, never()).save(any(TraceStateEntity.class));
     verify(traceStatusAuditRepository, never()).save(any(TraceStatusAuditEntity.class));
+  }
+
+  @Test
+  void shouldPersistExpirationAndAudit_WhenDuplicateEventIsEquivalentAndTraceIsPastDeadline() {
+    IncomingEvent event = event("event-1", "payment-created");
+    TraceState currentState = waitingState(OCCURRED_AT.plusSeconds(60));
+    when(eventRepository.findByEventId(event.eventId()))
+        .thenReturn(Optional.of(EventEntity.from(event, OCCURRED_AT.plusSeconds(1))));
+    when(traceStateRepository.lockByTraceId(event.traceId()))
+        .thenReturn(Optional.of(TraceStateEntity.from(currentState)));
+
+    EventIngestionResult result = service.ingest(event);
+
+    assertThat(result.idempotentDuplicate()).isTrue();
+    assertThat(result.traceState().status()).isEqualTo(TraceStatus.TTL_EXPIRED_FOR_EVENT);
+    assertThat(result.traceState().expiredAt()).isEqualTo(NOW);
+
+    verify(traceStateRepository).save(any(TraceStateEntity.class));
+    verify(traceStatusAuditRepository).save(any(TraceStatusAuditEntity.class));
   }
 
   private static IncomingEvent event(String eventId, String eventName) {
@@ -206,7 +234,7 @@ class EventIngestionServiceTest {
         null);
   }
 
-  private static TraceState waitingState() {
+  private static TraceState waitingState(Instant nextExpectedBefore) {
     return new TraceState(
         "trace-1",
         TraceStatus.WAITING_OTHER_EVENT,
@@ -215,7 +243,7 @@ class EventIngestionServiceTest {
         EventResult.SUCCESS,
         OCCURRED_AT,
         "payment-confirmed",
-        OCCURRED_AT.plusSeconds(60),
+        nextExpectedBefore,
         1,
         null,
         null);

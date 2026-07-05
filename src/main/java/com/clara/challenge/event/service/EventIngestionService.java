@@ -33,7 +33,7 @@ public class EventIngestionService {
   private final TraceStatusAuditRepository traceStatusAuditRepository;
   private final PlatformTransactionManager transactionManager;
 
-  private final Clock clock = Clock.systemUTC();
+  private final Clock clock;
   private final EventTransitionService transitionService = new EventTransitionService();
   private final DuplicateEventComparator duplicateComparator = new DuplicateEventComparator();
 
@@ -61,16 +61,33 @@ public class EventIngestionService {
       throw new EventConflictException("Duplicate eventId has different payload");
     }
 
-    TraceState traceState =
+    TraceStateEntity stateEntity =
         traceStateRepository
-            .findById(existingEvent.getTraceId())
+            .lockByTraceId(existingEvent.getTraceId())
             .orElseThrow(
                 () ->
                     new IllegalStateException(
-                        "Trace state missing for accepted event " + existingEvent.getEventId()))
-            .toDomain();
+                        "Trace state missing for accepted event " + existingEvent.getEventId()));
 
-    return new EventIngestionResult(traceState, true);
+    TraceState currentState = stateEntity.toDomain();
+
+    if (currentState.status() == TraceStatus.WAITING_OTHER_EVENT
+        && Instant.now(clock).isAfter(currentState.nextExpectedBefore())) {
+      TransitionResult transitionResult =
+          transitionService.expireWaitingTrace(currentState, Instant.now(clock));
+      stateEntity.apply(transitionResult.traceState());
+      traceStateRepository.save(stateEntity);
+      traceStatusAuditRepository.save(
+          TraceStatusAuditEntity.transition(
+              transitionResult.traceState().traceId(),
+              currentState.status(),
+              transitionResult.traceState().status(),
+              transitionResult.reason(),
+              null));
+      return new EventIngestionResult(transitionResult.traceState(), true);
+    }
+
+    return new EventIngestionResult(currentState, true);
   }
 
   private EventIngestionResult ingestNewEvent(IncomingEvent event) {
