@@ -44,7 +44,7 @@ public class GlobalExceptionHandler {
         details);
   }
 
-  @ExceptionHandler({HttpMessageNotReadableException.class, IllegalArgumentException.class})
+  @ExceptionHandler(HttpMessageNotReadableException.class)
   ResponseEntity<ErrorResponse> handleBadRequest(Exception exception, HttpServletRequest request) {
     return error(
         HttpStatus.BAD_REQUEST,

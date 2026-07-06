@@ -4,19 +4,19 @@ services:
       - .env
     image: bitnamilegacy/postgresql:15.4.0-debian-11-r56
     ports:
-      - "${PG_HOST_PORT:-5432}:5432"
+      - "${PG_HOST_PORT:-5433}:5432"
     networks:
       - "${DOCKER_NETWORK_NAME:-clarops_challenge_network}"
     volumes:
       - event_watchdog_postgresql_data:/bitnami/postgresql
       - ./init-scripts/db:/docker-entrypoint-initdb.d
     environment:
-      - POSTGRESQL_USERNAME=${PG_USERNAME:-clarops}
-      - POSTGRESQL_PASSWORD=${PG_PASSWORD:-CHANGE_ME}
+      - POSTGRESQL_USERNAME=${PG_USERNAME:-clarops_user}
+      - POSTGRESQL_PASSWORD=${PG_PASSWORD:-clarops_pass}
       - POSTGRESQL_DATABASE=${PG_DATABASE:-clarops_challenge}
       - POSTGRESQL_POSTGRES_PASSWORD=${PG_ADMIN_PASSWORD:-CHANGE_ME_ADMIN}
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${PG_USERNAME:-clarops} -d ${PG_DATABASE:-clarops_challenge} -h localhost -p 5432" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${PG_USERNAME:-clarops_user} -d ${PG_DATABASE:-clarops_challenge} -h localhost -p 5432" ]
       interval: 3s
       timeout: 2s
       retries: 60

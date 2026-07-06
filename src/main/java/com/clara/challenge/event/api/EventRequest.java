@@ -1,5 +1,6 @@
 package com.clara.challenge.event.api;
 
+import com.clara.challenge.event.domain.EventResult;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;

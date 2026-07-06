@@ -32,6 +32,10 @@ public class TraceStatusService {
             .lockByTraceId(traceId)
             .orElseThrow(() -> new TraceNotFoundException(traceId));
 
+    return expireIfNeeded(stateEntity);
+  }
+
+  TraceState expireIfNeeded(TraceStateEntity stateEntity) {
     TraceState currentState = stateEntity.toDomain();
     if (!shouldExpire(currentState)) {
       return currentState;

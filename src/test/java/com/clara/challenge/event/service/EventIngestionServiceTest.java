@@ -45,6 +45,7 @@ class EventIngestionServiceTest {
   @Mock private EventRepository eventRepository;
   @Mock private TraceStateRepository traceStateRepository;
   @Mock private TraceStatusAuditRepository traceStatusAuditRepository;
+  @Mock private TraceStatusService traceStatusService;
   @Mock private PlatformTransactionManager transactionManager;
 
   private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -59,6 +60,7 @@ class EventIngestionServiceTest {
             eventRepository,
             traceStateRepository,
             traceStatusAuditRepository,
+            traceStatusService,
             transactionManager,
             clock);
   }
@@ -95,7 +97,8 @@ class EventIngestionServiceTest {
   @Test
   void shouldUpdateStateAndWriteAudit_WhenExpectedEventIsAccepted() {
     IncomingEvent event = event("event-2", "payment-confirmed");
-    TraceStateEntity currentState = TraceStateEntity.from(waitingState(OCCURRED_AT.plusSeconds(60)));
+    TraceStateEntity currentState =
+        TraceStateEntity.from(waitingState(OCCURRED_AT.plusSeconds(60)));
     when(eventRepository.findByEventId(event.eventId())).thenReturn(Optional.empty());
     when(traceStateRepository.lockByTraceId(event.traceId())).thenReturn(Optional.of(currentState));
 
@@ -128,6 +131,7 @@ class EventIngestionServiceTest {
         .thenReturn(Optional.of(EventEntity.from(event, OCCURRED_AT.plusSeconds(1))));
     when(traceStateRepository.lockByTraceId(event.traceId()))
         .thenReturn(Optional.of(TraceStateEntity.from(currentState)));
+    when(traceStatusService.expireIfNeeded(any(TraceStateEntity.class))).thenReturn(currentState);
 
     EventIngestionResult result = service.ingest(event);
 
@@ -149,6 +153,7 @@ class EventIngestionServiceTest {
         .thenReturn(Optional.empty(), Optional.of(TraceStateEntity.from(currentState)));
     when(eventRepository.saveAndFlush(any(EventEntity.class)))
         .thenThrow(new DataIntegrityViolationException("duplicate event_id"));
+    when(traceStatusService.expireIfNeeded(any(TraceStateEntity.class))).thenReturn(currentState);
 
     EventIngestionResult result = service.ingest(event);
 
@@ -174,22 +179,32 @@ class EventIngestionServiceTest {
   }
 
   @Test
-  void shouldPersistExpirationAndAudit_WhenDuplicateEventIsEquivalentAndTraceIsPastDeadline() {
+  void shouldExpireTrace_WhenDuplicateEventIsEquivalentAndTraceIsPastDeadline() {
     IncomingEvent event = event("event-1", "payment-created");
-    TraceState currentState = waitingState(OCCURRED_AT.plusSeconds(60));
+    TraceState expiredState =
+        new TraceState(
+            "trace-1",
+            TraceStatus.TTL_EXPIRED_FOR_EVENT,
+            "event-1",
+            "payment-created",
+            EventResult.SUCCESS,
+            OCCURRED_AT,
+            null,
+            null,
+            1,
+            null,
+            NOW);
+    TraceStateEntity stateEntity = TraceStateEntity.from(waitingState(OCCURRED_AT.plusSeconds(60)));
     when(eventRepository.findByEventId(event.eventId()))
         .thenReturn(Optional.of(EventEntity.from(event, OCCURRED_AT.plusSeconds(1))));
-    when(traceStateRepository.lockByTraceId(event.traceId()))
-        .thenReturn(Optional.of(TraceStateEntity.from(currentState)));
+    when(traceStateRepository.lockByTraceId(event.traceId())).thenReturn(Optional.of(stateEntity));
+    when(traceStatusService.expireIfNeeded(stateEntity)).thenReturn(expiredState);
 
     EventIngestionResult result = service.ingest(event);
 
     assertThat(result.idempotentDuplicate()).isTrue();
-    assertThat(result.traceState().status()).isEqualTo(TraceStatus.TTL_EXPIRED_FOR_EVENT);
-    assertThat(result.traceState().expiredAt()).isEqualTo(NOW);
-
-    verify(traceStateRepository).save(any(TraceStateEntity.class));
-    verify(traceStatusAuditRepository).save(any(TraceStatusAuditEntity.class));
+    assertThat(result.traceState()).isEqualTo(expiredState);
+    verify(traceStatusService).expireIfNeeded(stateEntity);
   }
 
   private static IncomingEvent event(String eventId, String eventName) {

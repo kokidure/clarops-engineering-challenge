@@ -47,7 +47,7 @@ public class EventController {
         request.eventId(),
         request.traceId(),
         request.eventName(),
-        com.clara.challenge.event.domain.EventResult.valueOf(request.result().name()),
+        request.result(),
         request.occurredAt(),
         request.nextExpectedEvent(),
         request.nextEventTtlSeconds(),
@@ -58,9 +58,9 @@ public class EventController {
   private TraceStatusResponse toResponse(TraceState state) {
     return new TraceStatusResponse(
         state.traceId(),
-        TraceStatus.valueOf(state.status().name()),
+        state.status(),
         state.lastEventName(),
-        EventResult.valueOf(state.lastEventResult().name()),
+        state.lastEventResult(),
         state.nextExpectedEvent(),
         state.nextExpectedBefore(),
         state.eventsReceived());

@@ -31,6 +31,7 @@ public class EventIngestionService {
   private final EventRepository eventRepository;
   private final TraceStateRepository traceStateRepository;
   private final TraceStatusAuditRepository traceStatusAuditRepository;
+  private final TraceStatusService traceStatusService;
   private final PlatformTransactionManager transactionManager;
 
   private final Clock clock;
@@ -69,25 +70,8 @@ public class EventIngestionService {
                     new IllegalStateException(
                         "Trace state missing for accepted event " + existingEvent.getEventId()));
 
-    TraceState currentState = stateEntity.toDomain();
-
-    if (currentState.status() == TraceStatus.WAITING_OTHER_EVENT
-        && Instant.now(clock).isAfter(currentState.nextExpectedBefore())) {
-      TransitionResult transitionResult =
-          transitionService.expireWaitingTrace(currentState, Instant.now(clock));
-      stateEntity.apply(transitionResult.traceState());
-      traceStateRepository.save(stateEntity);
-      traceStatusAuditRepository.save(
-          TraceStatusAuditEntity.transition(
-              transitionResult.traceState().traceId(),
-              currentState.status(),
-              transitionResult.traceState().status(),
-              transitionResult.reason(),
-              null));
-      return new EventIngestionResult(transitionResult.traceState(), true);
-    }
-
-    return new EventIngestionResult(currentState, true);
+    TraceState state = traceStatusService.expireIfNeeded(stateEntity);
+    return new EventIngestionResult(state, true);
   }
 
   private EventIngestionResult ingestNewEvent(IncomingEvent event) {

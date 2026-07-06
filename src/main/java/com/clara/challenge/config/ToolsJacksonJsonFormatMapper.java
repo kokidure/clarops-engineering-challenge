@@ -13,8 +13,7 @@ public class ToolsJacksonJsonFormatMapper implements FormatMapper {
   public <T> T fromString(CharSequence string, JavaType<T> javaType, WrapperOptions options) {
     try {
       return MAPPER.readValue(
-          string.toString(),
-          MAPPER.getTypeFactory().constructType(javaType.getJavaTypeClass()));
+          string.toString(), MAPPER.getTypeFactory().constructType(javaType.getJavaTypeClass()));
     } catch (Exception e) {
       throw new RuntimeException("Failed to deserialize JSON", e);
     }
