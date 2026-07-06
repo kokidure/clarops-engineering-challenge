@@ -420,7 +420,38 @@ Update TASKS.md, README.md, and AI_USAGE.md cumulatively for Phase 7, and run fo
 ### Prompt Used
 
 ```text
-listo ya hice merge a develop. avanza con la fase 8
+Create Hurl end-to-end tests and final verification docs for the public API of the Event Watchdog service.
+
+Base URL for the Hurl tests: http://localhost:8081/api/v1
+
+Create these Hurl scenario files under hurl/:
+- started-flow.hurl
+- waiting-other-event-flow.hurl
+- completed-flow.hurl
+- ttl-expired-flow.hurl
+- unexpected-event-conflict.hurl
+- duplicate-idempotent-flow.hurl
+- duplicate-conflict.hurl
+- duplicate-lazy-expiration.hurl
+- late-event-conflict.hurl
+- expected-event-flow.hurl
+- error-final-event-flow.hurl
+- unknown-trace.hurl
+
+Rules for Hurl scenarios:
+- Validate only the public HTTP API responses (POST /events and GET /traces/{traceId}/status).
+- Do not assert internal database details.
+- Use unique and readable phase8-* eventId and traceId prefixes.
+- For TTL expiration, use an occurredAt timestamp sufficiently in the past instead of adding sleep calls.
+- Each file should be self-contained.
+
+Also update README.md with:
+- Final API examples using the full /api/v1 routes and correct port 8081.
+- Final data model documentation.
+- Verification commands for Maven, app startup, and Hurl execution.
+- Full list of Hurl scenario files and what each validates.
+
+Mark Phase 8 as complete in TASKS.md and update AI_USAGE.md with accepted/rejected suggestions.
 ```
 
 ### Accepted Suggestions

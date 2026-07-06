@@ -383,11 +383,38 @@ TRUNCATE
 SQL
 ```
 
+If `psql` is not available locally, run the truncation through the Docker container:
+
+```bash
+docker compose -f docker/docker-compose.yml exec -T \
+  -e PGPASSWORD=clarops_pass \
+  challenge-postgresql \
+  psql -U clarops_user -d clarops_challenge \
+  -c "TRUNCATE clarops_challenge_schema.trace_status_audit, clarops_challenge_schema.trace_state, clarops_challenge_schema.events;"
+```
+
 With the app running, execute the public HTTP E2E tests:
 
 ```bash
 hurl --test hurl/*.hurl
 ```
+
+The test suite covers 12 scenarios across the following files:
+
+|                 File                  |                    Scenario                     |
+|---------------------------------------|-------------------------------------------------|
+| `hurl/started-flow.hurl`              | Trace starts and reaches `STARTED`              |
+| `hurl/waiting-other-event-flow.hurl`  | Trace moves to `WAITING_OTHER_EVENT`            |
+| `hurl/expected-event-flow.hurl`       | Expected event arrives and advances the trace   |
+| `hurl/completed-flow.hurl`            | Final event completes the trace                 |
+| `hurl/error-final-event-flow.hurl`    | Final event with `result: ERROR`                |
+| `hurl/ttl-expired-flow.hurl`          | TTL expires on status read                      |
+| `hurl/unexpected-event-conflict.hurl` | Unexpected event rejected with 409              |
+| `hurl/duplicate-idempotent-flow.hurl` | Equivalent duplicate returns 200                |
+| `hurl/duplicate-conflict.hurl`        | Different duplicate rejected with 409           |
+| `hurl/duplicate-lazy-expiration.hurl` | Duplicate retry triggers lazy expiration        |
+| `hurl/late-event-conflict.hurl`       | Expected event after deadline rejected with 409 |
+| `hurl/unknown-trace.hurl`             | Unknown trace returns 404                       |
 
 At the beginning of Phase 1, the repository still contains only the baseline health endpoint:
 
