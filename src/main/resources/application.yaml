@@ -12,9 +12,9 @@ spring:
       file: ${DOCKER_COMPOSE_FILE:docker/docker-compose.yml}
       lifecycle-management: start-only
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/clarops_challenge}
-    username: ${PG_USERNAME:clarops}
-    password: ${PG_PASSWORD:CHANGE_ME}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/clarops_challenge}
+    username: ${PG_USERNAME:clarops_user}
+    password: ${PG_PASSWORD:clarops_pass}
     driver-class-name: org.postgresql.Driver
     type: com.zaxxer.hikari.HikariDataSource
     hikari:
@@ -26,6 +26,8 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        type:
+          json_format_mapper: com.clara.challenge.config.ToolsJacksonJsonFormatMapper
     database: postgresql
     database-platform: org.hibernate.dialect.PostgreSQLDialect
 

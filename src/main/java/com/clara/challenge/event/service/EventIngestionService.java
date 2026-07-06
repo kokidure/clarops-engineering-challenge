@@ -31,9 +31,10 @@ public class EventIngestionService {
   private final EventRepository eventRepository;
   private final TraceStateRepository traceStateRepository;
   private final TraceStatusAuditRepository traceStatusAuditRepository;
+  private final TraceStatusService traceStatusService;
   private final PlatformTransactionManager transactionManager;
 
-  private final Clock clock = Clock.systemUTC();
+  private final Clock clock;
   private final EventTransitionService transitionService = new EventTransitionService();
   private final DuplicateEventComparator duplicateComparator = new DuplicateEventComparator();
 
@@ -61,16 +62,16 @@ public class EventIngestionService {
       throw new EventConflictException("Duplicate eventId has different payload");
     }
 
-    TraceState traceState =
+    TraceStateEntity stateEntity =
         traceStateRepository
-            .findById(existingEvent.getTraceId())
+            .lockByTraceId(existingEvent.getTraceId())
             .orElseThrow(
                 () ->
                     new IllegalStateException(
-                        "Trace state missing for accepted event " + existingEvent.getEventId()))
-            .toDomain();
+                        "Trace state missing for accepted event " + existingEvent.getEventId()));
 
-    return new EventIngestionResult(traceState, true);
+    TraceState state = traceStatusService.expireIfNeeded(stateEntity);
+    return new EventIngestionResult(state, true);
   }
 
   private EventIngestionResult ingestNewEvent(IncomingEvent event) {

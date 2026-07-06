@@ -18,11 +18,10 @@ Implemented so far:
 - Phase 4: domain transition rules, conflict exceptions, and duplicate event comparison.
 - Phase 5: unit tests for the pure domain transition and duplicate-comparison rules.
 - Phase 6: JPA persistence entities, repositories, and transactional event ingestion service.
+- Phase 7: public event/status endpoints, HTTP error mapping, and lazy TTL expiration on status reads.
 
 Not implemented yet:
 
-- Public event/status endpoints.
-- Lazy expiration behavior in application code.
 - Hurl end-to-end tests and final verification.
 
 ## Scope
@@ -30,8 +29,8 @@ Not implemented yet:
 The MVP will expose two public endpoints under the existing `/api` context path:
 
 ```http
-POST /events
-GET /traces/{traceId}/status
+POST /v1/events
+GET /v1/traces/{traceId}/status
 ```
 
 The solution will stay intentionally small, but it will include enough production-aware behavior to make the flow reliable and explainable:
@@ -48,7 +47,7 @@ The solution will stay intentionally small, but it will include enough productio
 |                           Assumption                            |                                                               Behavior                                                               |                                                Rationale                                                 |                                                Trade-off                                                 |
 |-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
 | TTL is calculated from `occurredAt`.                            | `nextExpectedBefore = occurredAt + nextEventTtlSeconds`.                                                                             | The event timestamp represents when the upstream service completed the action.                           | If producers send delayed or incorrect timestamps, expiration can be earlier or later than receive time. |
-| TTL expiration is evaluated lazily.                             | Expiration is checked when `GET /traces/{traceId}/status` is called.                                                                 | The challenge explicitly does not require a scheduler or background job.                                 | Expired traces are only detected when they are queried.                                                  |
+| TTL expiration is evaluated lazily.                             | Expiration is checked when `GET /v1/traces/{traceId}/status` is called.                                                              | The challenge explicitly does not require a scheduler or background job.                                 | Expired traces are only detected when they are queried.                                                  |
 | Lazy expiration is persisted.                                   | When expiration is detected, `trace_state` moves to `TTL_EXPIRED_FOR_EVENT`, `expired_at` is populated, and an audit row is written. | Persisting the result makes repeated reads consistent and creates an extension point for future alerts.  | A read endpoint can mutate state, so this must be documented and tested.                                 |
 | Event history is immutable.                                     | Accepted events are stored in an `events` table and not updated.                                                                     | This supports auditability and debugging of distributed flows.                                           | Requires a separate `trace_state` table for current status lookup.                                       |
 | Current state is stored separately.                             | `trace_state` stores one row per `traceId`.                                                                                          | Status reads should not need to recompute the full event stream.                                         | State transitions must keep `events` and `trace_state` consistent.                                       |
@@ -59,7 +58,7 @@ The solution will stay intentionally small, but it will include enough productio
 | Completed traces are terminal.                                  | New events for a completed trace return `409 CONFLICT`.                                                                              | A final event marks the flow as closed.                                                                  | Reopening flows is not supported in this MVP.                                                            |
 | `ERROR` is an event result, not a trace status.                 | Events with `result = ERROR` can still define a next expected event.                                                                 | The challenge only defines four trace statuses and allows event result to describe the upstream outcome. | Business-specific failure semantics are not modeled as separate trace statuses.                          |
 | Metadata is stored as JSONB.                                    | The service stores `metadata` in PostgreSQL `JSONB`.                                                                                 | Metadata is flexible and not part of core transition rules.                                              | Querying metadata is out of scope for the MVP.                                                           |
-| Unknown traces return `404 NOT FOUND`.                          | `GET /traces/{traceId}/status` returns 404 when no trace exists.                                                                     | Missing data is different from an invalid flow transition.                                               | Clients must distinguish not found from conflict responses.                                              |
+| Unknown traces return `404 NOT FOUND`.                          | `GET /v1/traces/{traceId}/status` returns 404 when no trace exists.                                                                  | Missing data is different from an invalid flow transition.                                               | Clients must distinguish not found from conflict responses.                                              |
 | `trace_status_audit` records state transitions.                 | Important changes are appended with previous status, new status, reason, and event ID when available.                                | This supports debugging and future notification/alerting integrations.                                   | It adds write overhead and another table to maintain.                                                    |
 
 ## Technical Decisions
@@ -107,8 +106,8 @@ Phase 3 defined the public JSON contract that later endpoint and service phases 
 
 Delivered in this phase:
 
-- Added `EventRequest` for `POST /events` request payloads.
-- Added `TraceStatusResponse` for `GET /traces/{traceId}/status` responses.
+- Added `EventRequest` for `POST /v1/events` request payloads.
+- Added `TraceStatusResponse` for `GET /v1/traces/{traceId}/status` responses.
 - Added `ErrorResponse` for standard JSON error responses.
 - Added API enums for event results, trace statuses, and error codes.
 - Added Bean Validation rules for required fields, max string sizes, positive TTL values, paired `nextExpectedEvent`/`nextEventTtlSeconds`, and invalid `finalEvent` combinations.
@@ -154,7 +153,7 @@ Delivered in this phase:
 
 ### Phase 6: Persistence and Transactional Service
 
-Phase 6 connected the domain layer to the PostgreSQL schema through JPA entities, repositories, and a transactional event ingestion service. Public HTTP endpoints are still assigned to Phase 7, so this phase exposes the persistence flow as an application service that later controllers can call.
+Phase 6 connected the domain layer to the PostgreSQL schema through JPA entities, repositories, and a transactional event ingestion service. This phase exposed the persistence flow as an application service for the Phase 7 controllers.
 
 Delivered in this phase:
 
@@ -167,11 +166,24 @@ Delivered in this phase:
 - Added `EventIngestionResult` so later endpoints can distinguish newly accepted events from idempotent duplicates.
 - Added unit tests for the service orchestration paths using mocked repositories, without requiring a real database.
 
+### Phase 7: Endpoints and Lazy Expiration
+
+Phase 7 exposes the public Event Watchdog API through Spring MVC controllers and adds lazy expiration when a waiting trace status is read.
+
+Delivered in this phase:
+
+- Added `POST /v1/events`, returning `201 Created` for newly accepted events and `200 OK` for idempotent duplicate events.
+- Added `GET /v1/traces/{traceId}/status`, delegating to `TraceStatusService` for status reads.
+- Added global exception handling for validation errors, malformed JSON, unknown traces, event conflicts, and unexpected errors.
+- Added `TraceStatusService` lazy expiration: waiting traces whose `nextExpectedBefore` is before the current clock are persisted as `TTL_EXPIRED_FOR_EVENT`, `expired_at` is populated, and a `TTL_EXPIRED` audit row is written.
+- Kept repeated expired status reads idempotent by mutating only traces still in `WAITING_OTHER_EVENT`.
+- Added unit tests for controller status/error mapping and lazy expiration service behavior.
+
 ## API Contract
 
 ### Event Request
 
-`POST /events` will accept this request body:
+`POST /v1/events` will accept this request body:
 
 ```json
 {
@@ -202,7 +214,7 @@ Validation rules:
 
 ### Trace Status Response
 
-`GET /traces/{traceId}/status` will return the current trace status in this shape:
+`GET /v1/traces/{traceId}/status` will return the current trace status in this shape:
 
 ```json
 {
@@ -241,11 +253,11 @@ Supported error codes are `VALIDATION_ERROR`, `TRACE_NOT_FOUND`, `EVENT_CONFLICT
 The PostgreSQL DDL is defined in `docker/init-scripts/db/01-init-schema.sql`. The schema uses one
 immutable history table, one current-state table, and one append-only audit table.
 
-|        Table         |                                            Purpose                                            |                                                                                  Key columns                                                                                  |
-|----------------------|-----------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `events`             | Stores accepted distributed events as immutable history.                                      | `id`, `event_id`, `trace_id`, `event_name`, `result`, `occurred_at`, `received_at`, `next_expected_event`, `next_event_ttl_seconds`, `metadata`                               |
-| `trace_state`        | Stores the current status of each trace for efficient `GET /traces/{traceId}/status` lookups. | `trace_id`, `status`, `last_event_id`, `last_event_name`, `last_event_result`, `next_expected_event`, `next_expected_before`, `events_received`, `completed_at`, `expired_at` |
-| `trace_status_audit` | Records state transitions and supports future alerting or debugging use cases.                | `id`, `trace_id`, `previous_status`, `new_status`, `reason`, `event_id`, `created_at`                                                                                         |
+|        Table         |                                             Purpose                                              |                                                                                  Key columns                                                                                  |
+|----------------------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `events`             | Stores accepted distributed events as immutable history.                                         | `id`, `event_id`, `trace_id`, `event_name`, `result`, `occurred_at`, `received_at`, `next_expected_event`, `next_event_ttl_seconds`, `metadata`                               |
+| `trace_state`        | Stores the current status of each trace for efficient `GET /v1/traces/{traceId}/status` lookups. | `trace_id`, `status`, `last_event_id`, `last_event_name`, `last_event_result`, `next_expected_event`, `next_expected_before`, `events_received`, `completed_at`, `expired_at` |
+| `trace_status_audit` | Records state transitions and supports future alerting or debugging use cases.                   | `id`, `trace_id`, `previous_status`, `new_status`, `reason`, `event_id`, `created_at`                                                                                         |
 
 Important constraints and indexes:
 
@@ -267,7 +279,7 @@ Important constraints and indexes:
 4. Implement state transition logic outside controllers.
 5. Add unit tests for domain transition rules before adding infrastructure.
 6. Implement persistence entities, repositories, and transactional service flow.
-7. Expose `POST /events` and `GET /traces/{traceId}/status`, including lazy TTL expiration.
+7. Expose `POST /v1/events` and `GET /v1/traces/{traceId}/status`, including lazy TTL expiration.
 8. Add Hurl end-to-end tests, complete final documentation, and run final verification.
 
 ## Running the Project
@@ -277,6 +289,6 @@ For local setup and run instructions, see [SETUP.md](SETUP.md).
 At the beginning of Phase 1, the repository still contains only the baseline health endpoint:
 
 ```http
-GET /api/health
+GET /api/v1/health
 ```
 

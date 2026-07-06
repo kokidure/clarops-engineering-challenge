@@ -359,3 +359,59 @@ Update TASKS.md, README.md, and AI_USAGE.md cumulatively for Phase 6, and run fo
 - No lazy expiration on status reads was added because endpoint-triggered expiration belongs to Phase 7.
 - Idempotent duplicate retries return the current trace state without writing another event row or mutating trace state.
 
+## Phase 7 - Endpoints and Lazy Expiration
+
+### Prompt Used
+
+```text
+Start Phase 7 from the updated develop branch and implement the public REST endpoints plus lazy TTL expiration for the Event Watchdog MVP.
+
+Before writing code:
+- verify the working tree and current branch;
+- review CHALLENGE_INSTRUCTIONS.md, README.md, TASKS.md, plan.md, the existing API DTOs, domain logic, persistence entities, and Phase 6 service tests.
+
+Implement:
+- POST /events by delegating to EventIngestionService;
+- GET /traces/{traceId}/status by delegating to a status service;
+- global exception mapping for validation errors, malformed JSON, unknown traces, business conflicts, and unexpected failures;
+- standard error responses with code, message, traceId, details, and timestamp;
+- lazy expiration when status is queried for a WAITING_OTHER_EVENT trace whose nextExpectedBefore is before now;
+- persistence of TTL_EXPIRED_FOR_EVENT, expiredAt, and a TTL_EXPIRED audit row;
+- idempotent repeated status reads after expiration.
+
+Testing standard:
+- Use JUnit 5, AssertJ, Mockito, and MockMvc standalone tests where appropriate.
+- Test method names must follow shouldExpectedBehavior_WhenCondition.
+- Use Arrange / Act / Assert structure.
+- Keep controller tests focused on HTTP status and response mapping.
+- Keep lazy expiration tests at the service level with mocked repositories and a fixed Clock.
+- Do not add Hurl tests in this phase because Hurl validation belongs to Phase 8.
+
+Cover:
+- new event returns 201;
+- idempotent duplicate returns 200;
+- status endpoint returns current trace state;
+- validation errors return 400 with field details;
+- malformed JSON returns 400;
+- unknown traces return 404;
+- business conflicts return 409;
+- waiting trace past TTL persists expired state and audit row;
+- non-expired or already expired status reads do not mutate state.
+
+Update TASKS.md, README.md, and AI_USAGE.md cumulatively for Phase 7, and run formatting plus tests.
+```
+
+### Accepted Suggestions
+
+- Added `EventController` for public event ingestion and trace status endpoints.
+- Added `GlobalExceptionHandler` with standard API error responses and stable HTTP status mapping.
+- Added `TraceStatusService` to lazily expire waiting traces on status reads using an injectable `Clock` for tests.
+- Reused existing domain transition logic for TTL expiration instead of duplicating status rules in the controller.
+- Added mocked unit tests for controller response mapping and lazy expiration persistence/audit behavior.
+
+### Rejected or Adjusted Suggestions
+
+- No Hurl end-to-end tests were added because they are assigned to Phase 8.
+- Controller methods remain thin; persistence and transition decisions stay in services/domain code.
+- Repeated status reads after expiration do not write additional audit rows because only `WAITING_OTHER_EVENT` traces are eligible for lazy expiration.
+

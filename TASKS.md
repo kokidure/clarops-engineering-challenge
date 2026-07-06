@@ -65,16 +65,16 @@ This task list tracks the implementation phases for the challenge solution.
 
 ## Phase 7 - Implement Endpoints and Lazy Expiration
 
-- [ ] Add `POST /events`.
-- [ ] Add `GET /traces/{traceId}/status`.
-- [ ] Add global exception handling.
-- [ ] Return standard error responses.
-- [ ] Return correct HTTP status codes.
-- [ ] Detect expired waiting traces on status reads.
-- [ ] Persist `TTL_EXPIRED_FOR_EVENT`.
-- [ ] Populate `expired_at`.
-- [ ] Write `TTL_EXPIRED` audit rows.
-- [ ] Keep repeated status reads idempotent.
+- [x] Add `POST /events`.
+- [x] Add `GET /traces/{traceId}/status`.
+- [x] Add global exception handling.
+- [x] Return standard error responses.
+- [x] Return correct HTTP status codes.
+- [x] Detect expired waiting traces on status reads.
+- [x] Persist `TTL_EXPIRED_FOR_EVENT`.
+- [x] Populate `expired_at`.
+- [x] Write `TTL_EXPIRED` audit rows.
+- [x] Keep repeated status reads idempotent.
 
 ## Phase 8 - Add Hurl E2E Tests, Final Docs, and Verification
 
