@@ -78,22 +78,26 @@ This task list tracks the implementation phases for the challenge solution.
 
 ## Phase 8 - Add Hurl E2E Tests, Final Docs, and Verification
 
-- [ ] Add started flow scenario.
-- [ ] Add waiting-other-event flow scenario.
-- [ ] Add completed flow scenario.
-- [ ] Add TTL-expired flow scenario.
-- [ ] Add unexpected-event conflict scenario.
-- [ ] Add duplicate-idempotent flow scenario.
-- [ ] Add late-event conflict scenario.
-- [ ] Add unknown-trace scenario.
-- [ ] Update README with final API examples.
-- [ ] Update README with final data model.
-- [ ] Update README with final test commands.
+- [x] Add started flow scenario.
+- [x] Add waiting-other-event flow scenario.
+- [x] Add expected-event flow scenario.
+- [x] Add completed flow scenario.
+- [x] Add final-error flow scenario.
+- [x] Add TTL-expired flow scenario.
+- [x] Add unexpected-event conflict scenario.
+- [x] Add duplicate-idempotent flow scenario.
+- [x] Add duplicate-conflict scenario.
+- [x] Add duplicate-triggered lazy expiration scenario.
+- [x] Add late-event conflict scenario.
+- [x] Add unknown-trace scenario.
+- [x] Update README with final API examples.
+- [x] Update README with final data model.
+- [x] Update README with final test commands.
 - [x] Add `AI_USAGE.md`.
-- [ ] Finalize accepted and rejected AI suggestions.
-- [ ] Run Maven verification.
-- [ ] Run formatting checks.
-- [ ] Start the app with Docker/PostgreSQL.
-- [ ] Run Hurl tests.
-- [ ] Do a final README review.
+- [x] Finalize accepted and rejected AI suggestions.
+- [x] Run Maven verification.
+- [x] Run formatting checks.
+- [x] Start the app with Docker/PostgreSQL.
+- [x] Run Hurl tests.
+- [x] Do a final README review.
 

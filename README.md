@@ -19,10 +19,7 @@ Implemented so far:
 - Phase 5: unit tests for the pure domain transition and duplicate-comparison rules.
 - Phase 6: JPA persistence entities, repositories, and transactional event ingestion service.
 - Phase 7: public event/status endpoints, HTTP error mapping, and lazy TTL expiration on status reads.
-
-Not implemented yet:
-
-- Hurl end-to-end tests and final verification.
+- Phase 8: Hurl end-to-end tests, final documentation, and final verification commands.
 
 ## Scope
 
@@ -44,22 +41,22 @@ The solution will stay intentionally small, but it will include enough productio
 
 ## Assumptions
 
-|                           Assumption                            |                                                               Behavior                                                               |                                                Rationale                                                 |                                                Trade-off                                                 |
-|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
-| TTL is calculated from `occurredAt`.                            | `nextExpectedBefore = occurredAt + nextEventTtlSeconds`.                                                                             | The event timestamp represents when the upstream service completed the action.                           | If producers send delayed or incorrect timestamps, expiration can be earlier or later than receive time. |
-| TTL expiration is evaluated lazily.                             | Expiration is checked when `GET /v1/traces/{traceId}/status` is called.                                                              | The challenge explicitly does not require a scheduler or background job.                                 | Expired traces are only detected when they are queried.                                                  |
-| Lazy expiration is persisted.                                   | When expiration is detected, `trace_state` moves to `TTL_EXPIRED_FOR_EVENT`, `expired_at` is populated, and an audit row is written. | Persisting the result makes repeated reads consistent and creates an extension point for future alerts.  | A read endpoint can mutate state, so this must be documented and tested.                                 |
-| Event history is immutable.                                     | Accepted events are stored in an `events` table and not updated.                                                                     | This supports auditability and debugging of distributed flows.                                           | Requires a separate `trace_state` table for current status lookup.                                       |
-| Current state is stored separately.                             | `trace_state` stores one row per `traceId`.                                                                                          | Status reads should not need to recompute the full event stream.                                         | State transitions must keep `events` and `trace_state` consistent.                                       |
-| Duplicate `eventId` is idempotent only for equivalent payloads. | If all relevant fields match, the request returns `200 OK` with current trace status.                                                | Safe retries should not create duplicate effects.                                                        | The implementation must compare fields explicitly.                                                       |
-| Duplicate `eventId` with different payload is a conflict.       | The request returns `409 CONFLICT`.                                                                                                  | Same ID with different content is ambiguous and unsafe to accept.                                        | Clients must correct the event instead of relying on overwrite behavior.                                 |
-| Unexpected event while waiting is rejected.                     | If a trace waits for `nextExpectedEvent`, any different event returns `409 CONFLICT` and does not mutate state.                      | The service models a strict expected-event flow.                                                         | More flexible branching workflows are out of scope.                                                      |
-| Expected event after TTL is rejected.                           | The request returns `409 CONFLICT` and the trace remains `TTL_EXPIRED_FOR_EVENT`.                                                    | Once the SLA window expires, the flow should remain visibly expired.                                     | Late recovery would need an explicit remediation model, which is out of scope.                           |
-| Completed traces are terminal.                                  | New events for a completed trace return `409 CONFLICT`.                                                                              | A final event marks the flow as closed.                                                                  | Reopening flows is not supported in this MVP.                                                            |
-| `ERROR` is an event result, not a trace status.                 | Events with `result = ERROR` can still define a next expected event.                                                                 | The challenge only defines four trace statuses and allows event result to describe the upstream outcome. | Business-specific failure semantics are not modeled as separate trace statuses.                          |
-| Metadata is stored as JSONB.                                    | The service stores `metadata` in PostgreSQL `JSONB`.                                                                                 | Metadata is flexible and not part of core transition rules.                                              | Querying metadata is out of scope for the MVP.                                                           |
-| Unknown traces return `404 NOT FOUND`.                          | `GET /v1/traces/{traceId}/status` returns 404 when no trace exists.                                                                  | Missing data is different from an invalid flow transition.                                               | Clients must distinguish not found from conflict responses.                                              |
-| `trace_status_audit` records state transitions.                 | Important changes are appended with previous status, new status, reason, and event ID when available.                                | This supports debugging and future notification/alerting integrations.                                   | It adds write overhead and another table to maintain.                                                    |
+|                           Assumption                            |                                                                 Behavior                                                                 |                                                Rationale                                                 |                                                   Trade-off                                                   |
+|-----------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| TTL is calculated from `occurredAt`.                            | `nextExpectedBefore = occurredAt + nextEventTtlSeconds`.                                                                                 | The event timestamp represents when the upstream service completed the action.                           | If producers send delayed or incorrect timestamps, expiration can be earlier or later than receive time.      |
+| TTL expiration is evaluated lazily.                             | Expiration is checked when `GET /v1/traces/{traceId}/status` is called, and when an equivalent duplicate event retry reads stored state. | The challenge explicitly does not require a scheduler or background job.                                 | Expired traces are only detected when they are queried or when an idempotent duplicate retry loads the trace. |
+| Lazy expiration is persisted.                                   | When expiration is detected, `trace_state` moves to `TTL_EXPIRED_FOR_EVENT`, `expired_at` is populated, and an audit row is written.     | Persisting the result makes repeated reads consistent and creates an extension point for future alerts.  | A read endpoint can mutate state, so this must be documented and tested.                                      |
+| Event history is immutable.                                     | Accepted events are stored in an `events` table and not updated.                                                                         | This supports auditability and debugging of distributed flows.                                           | Requires a separate `trace_state` table for current status lookup.                                            |
+| Current state is stored separately.                             | `trace_state` stores one row per `traceId`.                                                                                              | Status reads should not need to recompute the full event stream.                                         | State transitions must keep `events` and `trace_state` consistent.                                            |
+| Duplicate `eventId` is idempotent only for equivalent payloads. | If all relevant fields match, the request returns `200 OK` with current trace status.                                                    | Safe retries should not create duplicate effects.                                                        | The implementation must compare fields explicitly.                                                            |
+| Duplicate `eventId` with different payload is a conflict.       | The request returns `409 CONFLICT`.                                                                                                      | Same ID with different content is ambiguous and unsafe to accept.                                        | Clients must correct the event instead of relying on overwrite behavior.                                      |
+| Unexpected event while waiting is rejected.                     | If a trace waits for `nextExpectedEvent`, any different event returns `409 CONFLICT` and does not mutate state.                          | The service models a strict expected-event flow.                                                         | More flexible branching workflows are out of scope.                                                           |
+| Expected event after TTL is rejected.                           | The request returns `409 CONFLICT` and the trace remains `TTL_EXPIRED_FOR_EVENT`.                                                        | Once the SLA window expires, the flow should remain visibly expired.                                     | Late recovery would need an explicit remediation model, which is out of scope.                                |
+| Completed traces are terminal.                                  | New events for a completed trace return `409 CONFLICT`.                                                                                  | A final event marks the flow as closed.                                                                  | Reopening flows is not supported in this MVP.                                                                 |
+| `ERROR` is an event result, not a trace status.                 | Events with `result = ERROR` can still define a next expected event.                                                                     | The challenge only defines four trace statuses and allows event result to describe the upstream outcome. | Business-specific failure semantics are not modeled as separate trace statuses.                               |
+| Metadata is stored as JSONB.                                    | The service stores `metadata` in PostgreSQL `JSONB`.                                                                                     | Metadata is flexible and not part of core transition rules.                                              | Querying metadata is out of scope for the MVP.                                                                |
+| Unknown traces return `404 NOT FOUND`.                          | `GET /v1/traces/{traceId}/status` returns 404 when no trace exists.                                                                      | Missing data is different from an invalid flow transition.                                               | Clients must distinguish not found from conflict responses.                                                   |
+| `trace_status_audit` records state transitions.                 | Important changes are appended with previous status, new status, reason, and event ID when available.                                    | This supports debugging and future notification/alerting integrations.                                   | It adds write overhead and another table to maintain.                                                         |
 
 ## Technical Decisions
 
@@ -179,7 +176,25 @@ Delivered in this phase:
 - Kept repeated expired status reads idempotent by mutating only traces still in `WAITING_OTHER_EVENT`.
 - Added unit tests for controller status/error mapping and lazy expiration service behavior.
 
+### Phase 8: End-to-End Tests and Final Verification
+
+Phase 8 validates the public HTTP API through Hurl scenarios and finalizes the documentation needed to run and review the solution.
+
+Delivered in this phase:
+
+- Added Hurl scenarios under `hurl/` for started, waiting, expected-event, completed, final error, TTL-expired, unexpected-event conflict, duplicate-idempotent, duplicate-conflict, duplicate-triggered lazy expiration, late-event conflict, and unknown-trace flows.
+- Documented final API examples using the full local URLs exposed by the `/api` context path and `/v1` API version.
+- Documented final data model and verification commands.
+- Finalized the Phase 8 checklist in [TASKS.md](TASKS.md) and AI collaboration notes in [AI_USAGE.md](AI_USAGE.md).
+
 ## API Contract
+
+The application uses `server.servlet.context-path=/api` and versioned controller mappings under `/v1`, so the full local endpoint URLs are:
+
+```http
+POST http://localhost:8081/api/v1/events
+GET http://localhost:8081/api/v1/traces/{traceId}/status
+```
 
 ### Event Request
 
@@ -248,6 +263,62 @@ Error responses will use a standard JSON shape:
 
 Supported error codes are `VALIDATION_ERROR`, `TRACE_NOT_FOUND`, `EVENT_CONFLICT`, and `INTERNAL_ERROR`.
 
+### Final API Examples
+
+Create a trace that starts and waits for a next event:
+
+```bash
+curl -s -X POST http://localhost:8081/api/v1/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventId": "evt-001",
+    "traceId": "trace-123",
+    "eventName": "APPLICATION_RECEIVED",
+    "result": "SUCCESS",
+    "occurredAt": "2026-06-15T10:00:00Z",
+    "nextExpectedEvent": "RULES_EVALUATED",
+    "nextEventTtlSeconds": 120,
+    "metadata": {
+      "country": "MX",
+      "entityId": "company-123"
+    }
+  }'
+```
+
+Expected response: `201 Created` with `status: "WAITING_OTHER_EVENT"` and `nextExpectedBefore` equal to `occurredAt + nextEventTtlSeconds`.
+
+Read current trace status:
+
+```bash
+curl -s http://localhost:8081/api/v1/traces/trace-123/status
+```
+
+Expected response: `200 OK` with the current trace state. If the waiting trace's `nextExpectedBefore` is already in the past, this read lazily persists `TTL_EXPIRED_FOR_EVENT`.
+
+Retry the same event payload:
+
+```bash
+curl -s -X POST http://localhost:8081/api/v1/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventId": "evt-001",
+    "traceId": "trace-123",
+    "eventName": "APPLICATION_RECEIVED",
+    "result": "SUCCESS",
+    "occurredAt": "2026-06-15T10:00:00Z",
+    "nextExpectedEvent": "RULES_EVALUATED",
+    "nextEventTtlSeconds": 120,
+    "metadata": {
+      "country": "MX",
+      "entityId": "company-123"
+    }
+  }'
+```
+
+Expected response: `200 OK`, because equivalent duplicate `eventId` payloads are idempotent.
+
+Equivalent duplicate retries return the current trace state. If that stored trace is waiting and already past its TTL, the retry can also trigger the same lazy expiration path used by the status endpoint.
+
 ## Data Model
 
 The PostgreSQL DDL is defined in `docker/init-scripts/db/01-init-schema.sql`. The schema uses one
@@ -285,6 +356,38 @@ Important constraints and indexes:
 ## Running the Project
 
 For local setup and run instructions, see [SETUP.md](SETUP.md).
+
+### Final Verification Commands
+
+Run unit and application-context tests plus formatting checks:
+
+```bash
+./mvnw clean verify
+```
+
+Start the application with Docker/PostgreSQL:
+
+```bash
+cp docker/example.env docker/.env
+./mvnw spring-boot:run
+```
+
+The Hurl scenarios use fixed `phase8-*` event IDs, so run them against a clean database. To reset local test data:
+
+```bash
+PGPASSWORD=clarops_pass psql -h localhost -p 5433 -U clarops_user -d clarops_challenge <<'SQL'
+TRUNCATE
+  clarops_challenge_schema.trace_status_audit,
+  clarops_challenge_schema.trace_state,
+  clarops_challenge_schema.events;
+SQL
+```
+
+With the app running, execute the public HTTP E2E tests:
+
+```bash
+hurl --test hurl/*.hurl
+```
 
 At the beginning of Phase 1, the repository still contains only the baseline health endpoint:
 

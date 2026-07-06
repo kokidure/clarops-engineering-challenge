@@ -415,3 +415,29 @@ Update TASKS.md, README.md, and AI_USAGE.md cumulatively for Phase 7, and run fo
 - Controller methods remain thin; persistence and transition decisions stay in services/domain code.
 - Repeated status reads after expiration do not write additional audit rows because only `WAITING_OTHER_EVENT` traces are eligible for lazy expiration.
 
+## Phase 8 - Hurl E2E, Final Docs, and Verification
+
+### Prompt Used
+
+```text
+listo ya hice merge a develop. avanza con la fase 8
+```
+
+### Accepted Suggestions
+
+- Created a dedicated `phase-8-e2e-final-verification` branch from updated `develop` after Phase 7 was merged.
+- Added Hurl end-to-end scenarios under `hurl/` for the required public HTTP flows and the documented duplicate/late/unexpected decisions.
+- Kept Hurl tests focused on the versioned public API routes: `/api/v1/events` and `/api/v1/traces/{traceId}/status`.
+- Used fixed `phase8-*` event and trace IDs so each scenario is readable and easy to debug.
+- Documented the need to run Hurl scenarios against a clean local database because the API intentionally treats duplicate `eventId` values as idempotent or conflicting instead of overwriting data.
+- Updated README with final API examples, data model notes, and verification commands.
+- Ran `./mvnw clean verify`: 35 tests passed and Spotless checks passed.
+- Started the app locally with Docker/PostgreSQL and verified `GET /api/v1/health` returned `200`.
+- Reset the event tables through the PostgreSQL Docker container before running E2E scenarios.
+- Ran `hurl --test hurl/*.hurl`: 12 files and 29 requests passed after adding explicit expected-event, duplicate-conflict, final-error, and duplicate-triggered lazy-expiration coverage.
+
+### Rejected or Adjusted Suggestions
+
+- Did not add a Maven Hurl plugin because the project has no existing Hurl integration and the challenge asks for Hurl E2E files, not build-time Hurl execution.
+- Did not remove `/v1` endpoint versioning; the final contract intentionally uses path versioning under `/api/v1`.
+
